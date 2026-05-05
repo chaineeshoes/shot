@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080">
+<title>趨勢交易</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1080px;
+    height: 1920px;
+    overflow: hidden;
+    background: #0b1120;
+    font-family: 'SF Pro Display', -apple-system, 'Helvetica Neue', sans-serif;
+  }
+  canvas {
+    display: block;
+    width: 1080px;
+    height: 1920px;
+  }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 1080, H = 1920;
+
+const BG      = '#0b1120';
+const GRID    = 'rgba(255,255,255,0.05)';
+const AXIS    = 'rgba(255,255,255,0.15)';
+const LABEL   = 'rgba(255,255,255,0.3)';
+const GREEN   = '#00c48c';
+const RED     = '#ff4d6a';
+const TREND   = '#378ADD';
+const CIRCLE  = '#f5a623';
+const CIRCLE2 = 'rgba(245,166,35,0.15)';
+
+const PAD = { l: 80, r: 60, t: 320, b: 200 };
+const CW = W - PAD.l - PAD.r;
+const CH = H - PAD.t - PAD.b;
+
+const candles = [
+  {o:82,h:90,l:72,c:76},
+  {o:76,h:84,l:65,c:68},
+  {o:68,h:74,l:55,c:60},
+  {o:60,h:78,l:52,c:75},
+  {o:75,h:94,l:70,c:91},
+  {o:91,h:100,l:84,c:86},
+  {o:86,h:94,l:74,c:76},
+  {o:76,h:82,l:58,c:61},
+  {o:61,h:69,l:50,c:56},
+  {o:56,h:72,l:48,c:68},
+  {o:68,h:90,l:64,c:87},
+  {o:87,h:102,l:82,c:98},
+  {o:98,h:108,l:88,c:90},
+  {o:90,h:98,l:70,c:73},
+  {o:73,h:80,l:60,c:64},
+  {o:64,h:76,l:56,c:72},
+  {o:72,h:96,l:68,c:93},
+  {o:93,h:112,l:88,c:108},
+  {o:108,h:120,l:102,c:116},
+  {o:116,h:128,l:110,c:124},
+];
+
+const buyIdx = [3, 9, 15];
+
+const allPrices = candles.flatMap(c => [c.h, c.l]);
+const minP = Math.min(...allPrices) - 10;
+const maxP = Math.max(...allPrices) + 10;
+
+function toY(p) { return PAD.t + CH * (1 - (p - minP) / (maxP - minP)); }
+function toX(i) { return PAD.l + (i + 0.5) * (CW / candles.length); }
+
+const barW = CW / candles.length * 0.52;
+
+const TOTAL_DUR = 3200;
+const BUY_DELAY = [780, 1380, 1980];
+
+function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+function easeOutBack(t) {
+  const c1 = 1.70158, c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+let startTime = null;
+
+function drawBackground() {
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, W, H);
+
+  for (let x = PAD.l; x <= W - PAD.r; x += CW / 8) {
+    ctx.strokeStyle = GRID;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, PAD.t + CH); ctx.stroke();
+  }
+  for (let i = 1; i <= 6; i++) {
+    const y = PAD.t + CH * (i / 7);
+    ctx.strokeStyle = GRID;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(W - PAD.r, y); ctx.stroke();
+
+    const price = Math.round(minP + (maxP - minP) * (1 - i / 7));
+    ctx.fillStyle = LABEL;
+    ctx.font = '28px SF Pro Display, -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(price, PAD.l - 16, y + 10);
+  }
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t - 10); ctx.lineTo(PAD.l, PAD.t + CH + 10); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t + CH); ctx.lineTo(W - PAD.r + 10, PAD.t + CH); ctx.stroke();
+}
+
+function drawTitle(alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '500 72px SF Pro Display, -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('趨勢交易', PAD.l, 160);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.font = '38px SF Pro Display, -apple-system, sans-serif';
+  ctx.fillText('市場上漲，找機會買入', PAD.l, 220);
+
+  ctx.globalAlpha = 1;
+}
+
+function draw(ts) {
+  if (!startTime) startTime = ts;
+  const elapsed = ts - startTime;
+  const progress = Math.min(1, elapsed / TOTAL_DUR);
+  const barCount = Math.floor(easeOut(progress) * candles.length);
+
+  drawBackground();
+
+  const titleAlpha = Math.min(1, elapsed / 400);
+  drawTitle(titleAlpha);
+
+  ctx.strokeStyle = TREND;
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([14, 10]);
+  ctx.globalAlpha = 0.4;
+  if (barCount > 1) {
+    const trendEnd = Math.min(barCount - 1, candles.length - 1);
+    ctx.beginPath();
+    ctx.moveTo(toX(0), toY(72));
+    ctx.lineTo(toX(trendEnd), toY(72 + trendEnd * 3.0));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+
+  for (let i = 0; i < barCount; i++) {
+    const c = candles[i];
+    const x = toX(i);
+    const yH = toY(c.h), yL = toY(c.l);
+    const yO = toY(c.o), yC = toY(c.c);
+    const up = c.c >= c.o;
+    const color = up ? GREEN : RED;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x, yH); ctx.lineTo(x, yL); ctx.stroke();
+
+    ctx.fillStyle = color;
+    const top = Math.min(yO, yC);
+    const bh = Math.max(Math.abs(yO - yC), 4);
+    ctx.fillRect(x - barW / 2, top, barW, bh);
+  }
+
+  buyIdx.forEach((bi, n) => {
+    const delay = BUY_DELAY[n];
+    const t = Math.max(0, Math.min(1, (elapsed - delay) / 500));
+    const scale = t > 0 ? easeOutBack(Math.min(t, 1)) : 0;
+
+    if (t > 0 && bi < barCount) {
+      const c = candles[bi];
+      const cx = toX(bi);
+      const cy = toY(c.l) + 28;
+      const r = 46;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(scale, scale);
+      ctx.translate(-cx, -cy);
+
+      ctx.fillStyle = CIRCLE2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = CIRCLE;
+      ctx.lineWidth = 4;
+      ctx.globalAlpha = t * 0.95;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.restore();
+      ctx.globalAlpha = 1;
+
+      if (t > 0.6) {
+        const labelAlpha = Math.min(1, (t - 0.6) / 0.4);
+        ctx.globalAlpha = labelAlpha;
+        ctx.fillStyle = CIRCLE;
+        ctx.font = '500 30px SF Pro Display, -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('買入', cx, cy - r - 20);
+        ctx.globalAlpha = 1;
+      }
+    }
+  });
+
+  if (progress < 1 || elapsed < BUY_DELAY[2] + 800) {
+    requestAnimationFrame(draw);
+  }
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
